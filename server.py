@@ -1,4 +1,3 @@
-
 import sys
 import json
 import os
@@ -299,183 +298,142 @@ def query_tooling_api(query):
 
 
 def get_comprehensive_coverage_data(job_id=None, class_names=None):
-    """Get code coverage data using Tooling API and regular API with multiple approaches."""
+    """Get code coverage data using Tooling API and regular API with multiple approaches - FIXED VERSION."""
     coverage_results = []
     try:
         logging.info(f"Getting coverage data: job_id={job_id}, class_names={class_names}")
 
-        # Method 1: Try Tooling API for ApexCodeCoverageAggregate
-        try:
-            if job_id:
-                # Try job-specific coverage first using Tooling API
+        # Method 1: If we have specific test class names, get coverage for the classes BEING TESTED (not the test classes themselves)
+        if class_names and job_id:
+            try:
+                # Get coverage for classes tested BY these test classes, not the test classes themselves
+                tooling_coverage_query = f"""
+                SELECT ApexClassOrTrigger.Name, ApexClassOrTrigger.Id, NumLinesCovered, NumLinesUncovered, 
+                       TestMethodName, ApexTestClass.Name as TestClassName
+                FROM ApexCodeCoverage
+                WHERE AsyncApexJobId = '{job_id}'
+                AND ApexClassOrTrigger.Name != null
+                ORDER BY ApexClassOrTrigger.Name, TestMethodName
+                """
+
+                tooling_coverage_result = query_tooling_api(tooling_coverage_query)
+                if tooling_coverage_result and tooling_coverage_result.get("records"):
+                    coverage_records = tooling_coverage_result["records"]
+                    logging.info(f"Found {len(coverage_records)} detailed coverage records for job {job_id}")
+
+                    # Aggregate coverage by the class being tested (not the test class)
+                    class_coverage_map = {}
+                    for record in coverage_records:
+                        class_name = record.get("ApexClassOrTrigger", {}).get("Name", "Unknown")
+                        test_class_name = record.get("TestClassName", "Unknown")
+                        covered = record.get("NumLinesCovered", 0)
+                        uncovered = record.get("NumLinesUncovered", 0)
+                        
+                        # Skip if this is a test class itself being measured
+                        if class_name.endswith('Test') or class_name.endswith('_Test'):
+                            continue
+                            
+                        logging.info(f"Coverage record: {class_name} tested by {test_class_name}: {covered}/{covered+uncovered} lines")
+
+                        if class_name not in class_coverage_map:
+                            class_coverage_map[class_name] = {
+                                "ApexClassOrTrigger": {"Name": class_name},
+                                "NumLinesCovered": covered,
+                                "NumLinesUncovered": uncovered,
+                                "TestMethods": [],
+                            }
+                        else:
+                            # Take maximum coverage seen for this class
+                            class_coverage_map[class_name]["NumLinesCovered"] = max(
+                                class_coverage_map[class_name]["NumLinesCovered"], covered
+                            )
+                            class_coverage_map[class_name]["NumLinesUncovered"] = max(
+                                class_coverage_map[class_name]["NumLinesUncovered"], uncovered
+                            )
+
+                        # Add test method info
+                        method_name = record.get("TestMethodName", "Unknown")
+                        class_coverage_map[class_name]["TestMethods"].append(
+                            {
+                                "method": f"{test_class_name}.{method_name}",
+                                "covered": covered,
+                                "uncovered": uncovered,
+                            }
+                        )
+
+                    coverage_results = list(class_coverage_map.values())
+                    if coverage_results:
+                        logging.info(f"Aggregated coverage for {len(coverage_results)} classes from job {job_id}")
+                        # Log the coverage details
+                        for cov in coverage_results:
+                            name = cov["ApexClassOrTrigger"]["Name"]
+                            covered = cov["NumLinesCovered"]
+                            uncovered = cov["NumLinesUncovered"]
+                            total = covered + uncovered
+                            pct = (covered / total * 100) if total > 0 else 0
+                            logging.info(f"Final coverage for {name}: {pct:.1f}% ({covered}/{total})")
+                        return coverage_results
+
+            except Exception as e:
+                logging.warning(f"Job-specific detailed coverage query failed: {str(e)}")
+
+        # Method 2: Try job-specific ApexCodeCoverageAggregate
+        if job_id:
+            try:
                 tooling_query = f"""
                 SELECT ApexClassOrTrigger.Name, NumLinesCovered, NumLinesUncovered
                 FROM ApexCodeCoverageAggregate
                 WHERE AsyncApexJobId = '{job_id}'
+                AND ApexClassOrTrigger.Name != null
                 ORDER BY ApexClassOrTrigger.Name
                 """
-            else:
-                # Get recent coverage data using Tooling API
-                tooling_query = """
-                SELECT ApexClassOrTrigger.Name, NumLinesCovered, NumLinesUncovered
-                FROM ApexCodeCoverageAggregate
-                WHERE ApexClassOrTrigger.Name != null
-                AND (NumLinesCovered > 0 OR NumLinesUncovered > 0)
-                ORDER BY ApexClassOrTrigger.Name
-                LIMIT 50
-                """
 
-            tooling_result = query_tooling_api(tooling_query)
-            if tooling_result and tooling_result.get("records"):
-                coverage_records = tooling_result["records"]
-                logging.info(
-                    f"Found {len(coverage_records)} aggregate coverage records via Tooling API"
-                )
-                return coverage_records
-
-        except Exception as e:
-            logging.warning(f"Tooling API ApexCodeCoverageAggregate query failed: {str(e)}")
-
-        # Method 2: Try Tooling API for ApexCodeCoverage (detailed coverage)
-        if class_names:
-            try:
-                # Get the class IDs for the classes we want coverage for
-                class_name_str = "','".join(class_names)
-                # Get test class IDs
-                test_class_query = (
-                    f"SELECT Id, Name FROM ApexClass WHERE Name IN ('{class_name_str}')"
-                )
-                test_class_records = sf_conn.query(test_class_query).get("records", [])
-
-                if test_class_records:
-                    test_class_ids = [rec["Id"] for rec in test_class_records]
-                    test_class_id_str = "','".join(test_class_ids)
-
-                    # Query ApexCodeCoverage using Tooling API
-                    tooling_coverage_query = f"""
-                    SELECT ApexTestClassId, ApexClassOrTrigger.Name, ApexClassOrTriggerId,
-                           NumLinesCovered, NumLinesUncovered, TestMethodName
-                    FROM ApexCodeCoverage
-                    WHERE ApexTestClassId IN ('{test_class_id_str}')
-                    ORDER BY ApexClassOrTrigger.Name, TestMethodName
-                    """
-
-                    tooling_coverage_result = query_tooling_api(tooling_coverage_query)
-                    if tooling_coverage_result and tooling_coverage_result.get("records"):
-                        coverage_records = tooling_coverage_result["records"]
-                        logging.info(
-                            f"Found {len(coverage_records)} coverage records via Tooling API"
-                        )
-
-                        # Aggregate coverage by class
-                        class_coverage_map = {}
-                        for record in coverage_records:
-                            class_name = record.get("ApexClassOrTrigger", {}).get(
-                                "Name", "Unknown"
-                            )
+                tooling_result = query_tooling_api(tooling_query)
+                if tooling_result and tooling_result.get("records"):
+                    coverage_records = tooling_result["records"]
+                    # Filter out test classes from aggregate results
+                    filtered_records = []
+                    for record in coverage_records:
+                        class_name = record.get("ApexClassOrTrigger", {}).get("Name", "")
+                        if not (class_name.endswith('Test') or class_name.endswith('_Test')):
+                            filtered_records.append(record)
                             covered = record.get("NumLinesCovered", 0)
                             uncovered = record.get("NumLinesUncovered", 0)
-
-                            if class_name not in class_coverage_map:
-                                class_coverage_map[class_name] = {
-                                    "ApexClassOrTrigger": {"Name": class_name},
-                                    "NumLinesCovered": covered,
-                                    "NumLinesUncovered": uncovered,
-                                    "TestMethods": [],
-                                }
-                            else:
-                                # Take maximum coverage seen
-                                class_coverage_map[class_name]["NumLinesCovered"] = max(
-                                    class_coverage_map[class_name]["NumLinesCovered"],
-                                    covered,
-                                )
-                                class_coverage_map[class_name][
-                                    "NumLinesUncovered"
-                                ] = max(
-                                    class_coverage_map[class_name]["NumLinesUncovered"],
-                                    uncovered,
-                                )
-
-                            # Add test method info
-                            class_coverage_map[class_name]["TestMethods"].append(
-                                {
-                                    "method": record.get("TestMethodName", "Unknown"),
-                                    "covered": covered,
-                                    "uncovered": uncovered,
-                                }
-                            )
-
-                        coverage_results = list(class_coverage_map.values())
-                        if coverage_results:
-                            logging.info(
-                                f"Aggregated coverage for {len(coverage_results)} classes via Tooling API"
-                            )
-                            return coverage_results
+                            total = covered + uncovered
+                            pct = (covered / total * 100) if total > 0 else 0
+                            logging.info(f"Aggregate coverage for {class_name}: {pct:.1f}% ({covered}/{total})")
+                    
+                    if filtered_records:
+                        logging.info(f"Found {len(filtered_records)} aggregate coverage records for job {job_id}")
+                        return filtered_records
 
             except Exception as e:
-                logging.warning(f"Tooling API ApexCodeCoverage query failed: {str(e)}")
+                logging.warning(f"Job-specific aggregate coverage query failed: {str(e)}")
 
-        # Method 3: Try regular SOQL API for ApexCodeCoverageAggregate
+        # Method 3: Try recent coverage data using regular API
         try:
-            if job_id:
-                # Try job-specific coverage first
-                coverage_query = f"""
-                SELECT ApexClassOrTrigger.Name, NumLinesCovered, NumLinesUncovered
-                FROM ApexCodeCoverageAggregate
-                WHERE AsyncApexJobId = '{job_id}'
-                ORDER BY ApexClassOrTrigger.Name
-                """
-            else:
-                # Get recent coverage data
-                coverage_query = """
-                SELECT ApexClassOrTrigger.Name, NumLinesCovered, NumLinesUncovered
-                FROM ApexCodeCoverageAggregate
-                WHERE ApexClassOrTrigger.Name != null
-                AND (NumLinesCovered > 0 OR NumLinesUncovered > 0)
-                ORDER BY ApexClassOrTrigger.Name
-                LIMIT 50
-                """
-
-            coverage_records = sf_conn.query_all(coverage_query).get("records", [])
-            if coverage_records:
-                logging.info(
-                    f"Found {len(coverage_records)} aggregate coverage records via regular API"
-                )
-                return coverage_records
-
-        except Exception as e:
-            logging.warning(
-                f"Regular API ApexCodeCoverageAggregate query failed: {str(e)}"
-            )
-
-        # Method 4: Try regular SOQL API for recent ApexCodeCoverage records
-        try:
-            yesterday = (datetime.now() - timedelta(days=1)).strftime(
-                "%Y-%m-%dT%H:%M:%SZ"
-            )
+            # Get the most recent coverage data
+            recent_time = (datetime.now() - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            
             recent_coverage_query = f"""
             SELECT ApexClassOrTrigger.Name, NumLinesCovered, NumLinesUncovered,
-                   TestMethodName, ApexTestClass.Name as TestClassName
+                   TestMethodName, ApexTestClass.Name as TestClassName, CreatedDate
             FROM ApexCodeCoverage
-            WHERE CreatedDate >= {yesterday}
+            WHERE CreatedDate >= {recent_time}
             AND ApexClassOrTrigger.Name != null
             ORDER BY ApexClassOrTrigger.Name, CreatedDate DESC
-            LIMIT 100
+            LIMIT 200
             """
 
-            recent_coverage = sf_conn.query_all(recent_coverage_query).get(
-                "records", []
-            )
+            recent_coverage = sf_conn.query_all(recent_coverage_query).get("records", [])
             if recent_coverage:
-                logging.info(
-                    f"Found {len(recent_coverage)} recent coverage records via regular API"
-                )
+                logging.info(f"Found {len(recent_coverage)} recent coverage records")
 
-                # Aggregate by class (take maximum coverage)
+                # Aggregate by class (take maximum coverage for each class)
                 class_coverage = {}
                 for record in recent_coverage:
                     class_name = record.get("ApexClassOrTrigger", {}).get("Name")
-                    if class_name:
+                    if class_name and not (class_name.endswith('Test') or class_name.endswith('_Test')):
                         covered = record.get("NumLinesCovered", 0)
                         uncovered = record.get("NumLinesUncovered", 0)
 
@@ -491,19 +449,44 @@ def get_comprehensive_coverage_data(job_id=None, class_names=None):
                                 class_coverage[class_name]["NumLinesCovered"], covered
                             )
                             class_coverage[class_name]["NumLinesUncovered"] = max(
-                                class_coverage[class_name]["NumLinesUncovered"],
-                                uncovered,
+                                class_coverage[class_name]["NumLinesUncovered"], uncovered
                             )
 
                 coverage_results = list(class_coverage.values())
                 if coverage_results:
-                    logging.info(
-                        f"Aggregated {len(coverage_results)} classes from recent coverage via regular API"
-                    )
+                    logging.info(f"Aggregated {len(coverage_results)} classes from recent coverage")
                     return coverage_results
 
         except Exception as e:
-            logging.warning(f"Recent coverage query via regular API failed: {str(e)}")
+            logging.warning(f"Recent coverage query failed: {str(e)}")
+
+        # Method 4: Fallback to general aggregate coverage
+        try:
+            general_query = """
+            SELECT ApexClassOrTrigger.Name, NumLinesCovered, NumLinesUncovered
+            FROM ApexCodeCoverageAggregate
+            WHERE ApexClassOrTrigger.Name != null
+            AND (NumLinesCovered > 0 OR NumLinesUncovered > 0)
+            ORDER BY ApexClassOrTrigger.Name
+            LIMIT 50
+            """
+
+            general_result = query_tooling_api(general_query)
+            if general_result and general_result.get("records"):
+                coverage_records = general_result["records"]
+                # Filter out test classes
+                filtered_records = []
+                for record in coverage_records:
+                    class_name = record.get("ApexClassOrTrigger", {}).get("Name", "")
+                    if not (class_name.endswith('Test') or class_name.endswith('_Test')):
+                        filtered_records.append(record)
+                
+                if filtered_records:
+                    logging.info(f"Found {len(filtered_records)} general aggregate coverage records")
+                    return filtered_records
+
+        except Exception as e:
+            logging.warning(f"General aggregate coverage query failed: {str(e)}")
 
     except Exception as e:
         logging.error(f"All coverage methods failed: {str(e)}")
