@@ -1,3 +1,4 @@
+
 import sys
 import json
 import os
@@ -99,7 +100,6 @@ def initialize_salesforce(retry_count=3):
             logging.error(error_msg)
             logging.error(f"Exception type: {type(e).__name__}")
             traceback.print_exc(file=sys.stderr)
-
             if attempt < retry_count - 1:
                 logging.info("Retrying in 2 seconds...")
                 time.sleep(2)
@@ -116,7 +116,6 @@ def ensure_connection():
     if sf_conn is None:
         success, message = initialize_salesforce()
         return success
-
     try:
         # Simple connection test without LIMIT for COUNT queries
         sf_conn.query("SELECT COUNT(Id) FROM Account")
@@ -133,7 +132,6 @@ def check_object_exists(object_name):
     try:
         if not object_name.endswith("__c"):
             object_name += "__c"
-
         # Query for existing object
         query = (
             f"SELECT Id FROM EntityDefinition WHERE QualifiedApiName = '{object_name}' LIMIT 1"
@@ -156,7 +154,6 @@ def normalize_soql_query(query):
     if "COUNT(" in query.upper() and "LIMIT" in query.upper():
         # Remove LIMIT clause from COUNT queries
         import re
-
         query = re.sub(r"\s+LIMIT\s+\d+", "", query, flags=re.IGNORECASE)
         logging.info(f"Removed LIMIT from COUNT query: {query}")
 
@@ -180,8 +177,8 @@ def check_test_execution_status(class_names):
         AND Status IN ('Queued', 'Processing')
         ORDER BY CreatedDate DESC
         """
-
         queue_results = sf_conn.query(queue_query).get("records", [])
+
         if queue_results:
             running_classes = [r["ApexClass"]["Name"] for r in queue_results]
             return {
@@ -203,8 +200,8 @@ def check_test_execution_status(class_names):
         ORDER BY CreatedDate DESC
         LIMIT 5
         """
-
         job_results = sf_conn.query(job_query).get("records", [])
+
         if job_results:
             return {"status": "running", "jobs": job_results}
 
@@ -231,8 +228,8 @@ def get_recent_test_job_id(class_names):
         ORDER BY CreatedDate DESC
         LIMIT 1
         """
-
         queue_results = sf_conn.query(queue_query).get("records", [])
+
         if queue_results and queue_results[0].get("ParentJobId"):
             job_id = queue_results[0]["ParentJobId"]
             logging.info(f"Found recent job ID for {class_names}: {job_id}")
@@ -251,8 +248,8 @@ def get_recent_test_job_id(class_names):
         ORDER BY CreatedDate DESC
         LIMIT 1
         """
-
         job_results = sf_conn.query(job_query).get("records", [])
+
         if job_results:
             job_id = job_results[0]["Id"]
             logging.info(f"Found recent async job: {job_id}")
@@ -304,7 +301,6 @@ def query_tooling_api(query):
 def get_comprehensive_coverage_data(job_id=None, class_names=None):
     """Get code coverage data using Tooling API and regular API with multiple approaches."""
     coverage_results = []
-
     try:
         logging.info(f"Getting coverage data: job_id={job_id}, class_names={class_names}")
 
@@ -470,7 +466,6 @@ def get_comprehensive_coverage_data(job_id=None, class_names=None):
             recent_coverage = sf_conn.query_all(recent_coverage_query).get(
                 "records", []
             )
-
             if recent_coverage:
                 logging.info(
                     f"Found {len(recent_coverage)} recent coverage records via regular API"
@@ -548,7 +543,6 @@ def get_current_org_coverage():
             covered = coverage.get("NumLinesCovered", 0)
             uncovered = coverage.get("NumLinesUncovered", 0)
             total = covered + uncovered
-
             if total > 0:
                 percentage = (covered / total) * 100
                 class_name = coverage.get("ApexClassOrTrigger", {}).get("Name", "Unknown")
@@ -623,11 +617,9 @@ def parse_line_number_from_stack_trace(stack_trace):
     """Extract line number from stack trace."""
     if not stack_trace:
         return None
-
     try:
         # Look for patterns like "line 123" or ":123:"
         import re
-
         # Pattern 1: "line 123"
         line_match = re.search(r"line (\d+)", stack_trace, re.IGNORECASE)
         if line_match:
@@ -645,7 +637,6 @@ def parse_line_number_from_stack_trace(stack_trace):
 
     except Exception as e:
         logging.warning(f"Error parsing line number from stack trace: {str(e)}")
-
     return None
 
 
@@ -671,7 +662,6 @@ def get_test_results_for_classes(class_names, job_id=None):
             AND ApexClass.Name IN ('{"','".join(class_names)}')
             ORDER BY ApexClass.Name, MethodName
             """
-
             test_results = sf_conn.query_all(results_query).get("records", [])
             if test_results:
                 logging.info(f"Found {len(test_results)} test results for job {job_id}")
@@ -681,7 +671,6 @@ def get_test_results_for_classes(class_names, job_id=None):
         recent_time = (datetime.now() - timedelta(hours=2)).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         )
-
         class_name_str = "','".join(class_names)
         recent_results_query = f"""
         SELECT ApexClass.Name, MethodName, Outcome, Message, StackTrace,
@@ -692,7 +681,6 @@ def get_test_results_for_classes(class_names, job_id=None):
         ORDER BY TestTimestamp DESC, ApexClass.Name, MethodName
         LIMIT 50
         """
-
         test_results = sf_conn.query_all(recent_results_query).get("records", [])
         if test_results:
             logging.info(f"Found {len(test_results)} recent test results")
@@ -769,7 +757,6 @@ def check_test_status_and_coverage(class_names=None):
                 ]
                 if failed_test_details:
                     response_lines.append("❌ **Failed Tests (Detailed):**")
-
                     for i, failure in enumerate(
                         failed_test_details[:5]
                     ):  # Show up to 5 failures
@@ -810,7 +797,6 @@ def check_test_status_and_coverage(class_names=None):
                             # Extract the most relevant line from stack trace
                             stack_lines = stack_trace.split("\n")
                             relevant_lines = []
-
                             for line in stack_lines[:2]:  # Show first 2 lines of stack trace
                                 line = line.strip()
                                 if (
@@ -841,7 +827,6 @@ def check_test_status_and_coverage(class_names=None):
             # Add coverage information
             if coverage_data:
                 response_lines.append("📊 **Code Coverage:**")
-
                 total_covered = 0
                 total_lines = 0
                 found_coverage = False
@@ -1006,8 +991,7 @@ def run_apex_tests_comprehensive(
 
 
 def run_apex_tests_tooling_api_enhanced(
-    class_names, test_level, async_execution, code_coverage
-):
+    class_names, test_level, async_execution, code_coverage):
     """Enhanced Tooling API approach with proper payload structure."""
     try:
         logging.info("Attempting enhanced Tooling API test execution")
@@ -1230,7 +1214,6 @@ def get_test_results_by_job_id(job_id, code_coverage, class_names, test_level):
         WHERE AsyncApexJobId = '{job_id}'
         ORDER BY ApexClass.Name, MethodName
         """
-
         test_results = sf_conn.query_all(results_query).get("records", [])
 
         # Get code coverage if requested
@@ -1252,8 +1235,7 @@ def get_test_results_by_job_id(job_id, code_coverage, class_names, test_level):
 
 
 def format_comprehensive_test_results(
-    test_results, coverage_results, job_id, class_names, test_level, execution_method
-):
+    test_results, coverage_results, job_id, class_names, test_level, execution_method):
     """Enhanced formatting with detailed failure information and line numbers."""
     try:
         # If no coverage provided, try to get it
@@ -1303,7 +1285,6 @@ def format_comprehensive_test_results(
         failed_test_details = [r for r in test_results if r.get("Outcome") == "Fail"]
         if failed_test_details:
             report_lines.append("\n❌ **Failed Tests (Detailed):**")
-
             for i, failure in enumerate(failed_test_details[:10]):  # Show up to 10 failures
                 class_name = failure.get("ApexClass", {}).get("Name", "Unknown")
                 method_name = failure.get("MethodName", "Unknown")
@@ -1340,7 +1321,6 @@ def format_comprehensive_test_results(
                     # Extract the most relevant line from stack trace
                     stack_lines = stack_trace.split("\n")
                     relevant_lines = []
-
                     for line in stack_lines[:3]:  # Show first 3 lines of stack trace
                         line = line.strip()
                         if line and not line.startswith("System.") and not line.startswith(
@@ -1375,7 +1355,6 @@ def format_comprehensive_test_results(
                 class_name = success.get("ApexClass", {}).get("Name", "Unknown")
                 method_name = success.get("MethodName", "Unknown")
                 run_time = success.get("RunTime", 0)
-
                 runtime_display = f" ({run_time}ms)" if run_time else ""
                 report_lines.append(f"   • {class_name}.{method_name}{runtime_display}")
 
@@ -1544,8 +1523,7 @@ def run_apex_tests_analysis_mode(class_names, test_level, code_coverage):
 
 
 def parse_test_results(
-    result_data, code_coverage, class_names, test_level, execution_method
-):
+    result_data, code_coverage, class_names, test_level, execution_method):
     """Parse and format test results from API response."""
     try:
         # This would parse the actual API response format
@@ -1677,9 +1655,11 @@ def create_records_with_validation(object_name, records_data):
                     field_desc += f"\n  Format: {field['format']}"
                 elif field["type"] == "string" and field.get("length"):
                     field_desc += f" (max {field['length']} characters)"
+
                 error_message += field_desc + "\n"
 
             error_message += "\n💡 **Please provide all required fields and try again.**"
+
             return {"success": False, "message": error_message}
 
         # All validation passed, create the records
@@ -1689,6 +1669,7 @@ def create_records_with_validation(object_name, records_data):
         if len(records_data) > 1:
             bulk_object = getattr(sf_conn.bulk, object_name)
             results = bulk_object.insert(records_data)
+
             success_count = sum(1 for r in results if r.get("success"))
             error_count = len(records_data) - success_count
             errors = [
@@ -1760,6 +1741,529 @@ def test_connection():
     except Exception as e:
         logging.error(f"Connection test failed: {str(e)}")
         return {"status": "ERROR", "message": f"Connection test error: {str(e)}"}
+
+
+def create_custom_object(object_name, label, plural_label, description=""):
+    """Creates a custom object using the Metadata API."""
+    try:
+        if not ensure_connection():
+            return {"success": False, "message": "❌ Salesforce connection failed"}
+
+        if not object_name.endswith("__c"):
+            object_name += "__c"
+
+        # Check if object already exists
+        if check_object_exists(object_name):
+            return {
+                "success": False,
+                "message": f"❌ Custom Object '{object_name}' already exists in the org.",
+            }
+
+        logging.info(
+            f"Attempting to create custom object: {object_name} using Metadata API"
+        )
+
+        md_api = sf_conn.mdapi
+
+        # Create the object metadata - only standard fields
+        object_data = {
+            "fullName": object_name,
+            "label": label,
+            "pluralLabel": plural_label,
+            "nameField": {"label": f"{label} Name", "type": "Text", "length": 80},
+            "deploymentStatus": md_api.DeploymentStatus("Deployed"),
+            "sharingModel": md_api.SharingModel("ReadWrite"),
+        }
+
+        # Add description if provided
+        if description:
+            object_data["description"] = description
+
+        # Create custom object
+        custom_object = md_api.CustomObject(**object_data)
+        logging.info(f"Creating basic object with mdapi: {object_name}")
+
+        # Call the create method and handle the result properly
+        try:
+            result = md_api.CustomObject.create(custom_object)
+            logging.info(f"Object creation result: {result}")
+
+            # Give Salesforce time to process
+            time.sleep(3)
+
+            if check_object_exists(object_name):
+                return {
+                    "success": True,
+                    "message": f"✅ Successfully created Custom Object '{object_name}' with standard fields.\n\n📋 **Standard Fields Created:**\n• Name ({label} Name) - Text(80)\n• Created By - Lookup(User)\n• Created Date - DateTime\n• Last Modified By - Lookup(User)\n• Last Modified Date - DateTime\n• Owner - Lookup(User,Group)\n\n💡 You can now add custom fields to this object if needed.",
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": f"❌ Object creation may have failed - object not found after creation",
+                }
+
+        except Exception as create_error:
+            error_str = str(create_error)
+            if "DUPLICATE_DEVELOPER_NAME" in error_str:
+                return {
+                    "success": False,
+                    "message": f"❌ Custom Object '{object_name}' already exists in the org.",
+                }
+            else:
+                return {"success": False, "message": f"❌ Failed to create object: {error_str}"}
+
+    except Exception as e:
+        error_message = f"❌ An exception occurred during object creation: {str(e)}"
+        logging.error(error_message)
+        traceback.print_exc(file=sys.stderr)
+        return {"success": False, "message": error_message}
+
+
+def create_custom_field(object_name, field_label, field_type="Text", **kwargs):
+    """Creates a custom field on an object using the Metadata API - WORKING VERSION."""
+    try:
+        if not ensure_connection():
+            return {"success": False, "message": "❌ Salesforce connection failed"}
+
+        # Generate API name from label
+        field_name_base = ''.join(c for c in field_label if c.isalnum() or c == ' ')
+        field_api_name = field_name_base.replace(' ', '_') + '__c'
+        full_name = f"{object_name}.{field_api_name}"
+
+        logging.info(f"Attempting to create field '{field_api_name}' on object '{object_name}' using Metadata API")
+
+        md_api = sf_conn.mdapi
+
+        # Create field definition
+        field_data = {
+            'fullName': full_name,
+            'label': field_label,
+            'type': field_type
+        }
+
+        # Add type-specific properties
+        if field_type == 'Text':
+            field_data['length'] = kwargs.get('length', 255)
+        elif field_type == 'LongTextArea':
+            field_data['length'] = kwargs.get('length', 32768)
+            field_data['visibleLines'] = kwargs.get('visibleLines', 3)
+        elif field_type == 'Number':
+            field_data['precision'] = kwargs.get('precision', 18)
+            field_data['scale'] = kwargs.get('scale', 0)
+        elif field_type == 'Currency':
+            field_data['precision'] = kwargs.get('precision', 18)
+            field_data['scale'] = kwargs.get('scale', 2)
+        elif field_type == 'Percent':
+            field_data['precision'] = kwargs.get('precision', 18)
+            field_data['scale'] = kwargs.get('scale', 2)
+        elif field_type == 'Checkbox':
+            field_data['defaultValue'] = kwargs.get('defaultValue', False)
+        elif field_type == 'Picklist':
+            picklist_values = kwargs.get('picklist_values', kwargs.get('picklistValues', ['Option 1', 'Option 2', 'Option 3']))
+            field_data['valueSet'] = {
+                'valueSetDefinition': {
+                    'value': [{'fullName': val, 'default': False, 'label': val} for val in picklist_values],
+                    'sorted': False
+                }
+            }
+
+        # Add required attribute if specified
+        if kwargs.get('required', False):
+            field_data['required'] = True
+
+        # Add unique attribute if specified
+        if kwargs.get('unique', False):
+            field_data['unique'] = True
+
+        custom_field = md_api.CustomField(**field_data)
+
+        logging.info(f"Creating field with mdapi: {full_name}")
+
+        try:
+            result = md_api.CustomField.create(custom_field)
+            logging.info(f"Field creation result: {result}")
+
+            return {
+                "success": True,
+                "message": f"✅ Successfully created Field '{field_api_name}' on Object '{object_name}'.\n\n📋 **Field Details:**\n• Label: {field_label}\n• API Name: {field_api_name}\n• Type: {field_type}\n• Required: {kwargs.get('required', False)}"
+            }
+
+        except Exception as create_error:
+            error_str = str(create_error)
+            if "DUPLICATE_DEVELOPER_NAME" in error_str:
+                return {"success": False, "message": f"❌ Field '{field_api_name}' already exists on object '{object_name}'."}
+            else:
+                return {"success": False, "message": f"❌ Failed to create field: {error_str}"}
+
+    except Exception as e:
+        error_message = f"❌ An exception occurred during field creation: {str(e)}"
+        logging.error(error_message)
+        traceback.print_exc(file=sys.stderr)
+        return {"success": False, "message": error_message}
+
+
+def update_custom_field(object_name, field_name, field_label=None, **kwargs):
+    """Updates a custom field on an object using the Metadata API."""
+    try:
+        if not ensure_connection():
+            return {"success": False, "message": "❌ Salesforce connection failed"}
+
+        # Ensure field name has __c suffix
+        if not field_name.endswith('__c'):
+            field_name += '__c'
+
+        full_name = f"{object_name}.{field_name}"
+        logging.info(f"Attempting to update field '{field_name}' on object '{object_name}' using Metadata API")
+
+        md_api = sf_conn.mdapi
+
+        # Get current field metadata first
+        try:
+            current_field = md_api.CustomField.read(full_name)
+            if not current_field:
+                return {"success": False, "message": f"❌ Field '{field_name}' does not exist on object '{object_name}'."}
+        except Exception as read_error:
+            return {"success": False, "message": f"❌ Failed to read current field metadata: {str(read_error)}"}
+
+        # Update only the provided fields
+        updates_made = []
+
+        if field_label is not None:
+            current_field.label = field_label
+            updates_made.append(f"Label: '{field_label}'")
+
+        # Update type-specific properties
+        if 'length' in kwargs and hasattr(current_field, 'length'):
+            current_field.length = kwargs['length']
+            updates_made.append(f"Length: {kwargs['length']}")
+
+        if 'precision' in kwargs and hasattr(current_field, 'precision'):
+            current_field.precision = kwargs['precision']
+            updates_made.append(f"Precision: {kwargs['precision']}")
+
+        if 'scale' in kwargs and hasattr(current_field, 'scale'):
+            current_field.scale = kwargs['scale']
+            updates_made.append(f"Scale: {kwargs['scale']}")
+
+        if 'defaultValue' in kwargs and hasattr(current_field, 'defaultValue'):
+            current_field.defaultValue = kwargs['defaultValue']
+            updates_made.append(f"Default Value: {kwargs['defaultValue']}")
+
+        if 'required' in kwargs:
+            current_field.required = kwargs['required']
+            updates_made.append(f"Required: {kwargs['required']}")
+
+        if 'picklist_values' in kwargs and hasattr(current_field, 'valueSet'):
+            picklist_values = kwargs['picklist_values']
+            current_field.valueSet = {
+                'valueSetDefinition': {
+                    'value': [{'fullName': val, 'default': False, 'label': val} for val in picklist_values],
+                    'sorted': False
+                }
+            }
+            updates_made.append(f"Picklist Values: {picklist_values}")
+
+        if not updates_made:
+            return {"success": False, "message": "❌ No updates provided. Please specify at least one field property to update."}
+
+        # Update the field
+        try:
+            result = md_api.CustomField.update(current_field)
+            logging.info(f"Field update result: {result}")
+
+            # Give Salesforce time to process
+            time.sleep(2)
+
+            return {
+                "success": True,
+                "message": f"✅ Successfully updated Field '{field_name}' on Object '{object_name}'.\n\n📝 **Updates Made:**\n" + "\n".join([f"• {update}" for update in updates_made])
+            }
+
+        except Exception as update_error:
+            error_str = str(update_error)
+            return {"success": False, "message": f"❌ Failed to update field: {error_str}"}
+
+    except Exception as e:
+        error_message = f"❌ An exception occurred during field update: {str(e)}"
+        logging.error(error_message)
+        traceback.print_exc(file=sys.stderr)
+        return {"success": False, "message": error_message}
+
+
+def delete_custom_field(object_name, field_name):
+    """Deletes a custom field from an object using the Metadata API."""
+    try:
+        if not ensure_connection():
+            return {"success": False, "message": "❌ Salesforce connection failed"}
+
+        # Ensure field name has __c suffix
+        if not field_name.endswith('__c'):
+            field_name += '__c'
+
+        full_name = f"{object_name}.{field_name}"
+        logging.info(f"Attempting to delete field '{field_name}' from object '{object_name}' using Metadata API")
+
+        md_api = sf_conn.mdapi
+
+        # Delete the field
+        try:
+            result = md_api.CustomField.delete(full_name)
+            logging.info(f"Field deletion result: {result}")
+
+            # Give Salesforce time to process
+            time.sleep(2)
+
+            return {
+                "success": True,
+                "message": f"✅ Successfully deleted Field '{field_name}' from Object '{object_name}'.\n\n⚠️ **Note:** All data in this field has been permanently removed from all records."
+            }
+
+        except Exception as delete_error:
+            error_str = str(delete_error)
+            if "FIELD_NOT_FOUND" in error_str or "does not exist" in error_str:
+                return {"success": False, "message": f"❌ Field '{field_name}' does not exist on object '{object_name}'."}
+            else:
+                return {"success": False, "message": f"❌ Failed to delete field: {error_str}"}
+
+    except Exception as e:
+        error_message = f"❌ An exception occurred during field deletion: {str(e)}"
+        logging.error(error_message)
+        traceback.print_exc(file=sys.stderr)
+        return {"success": False, "message": error_message}
+
+
+def update_custom_object(object_name, label=None, plural_label=None, description=None):
+    """Updates a custom object using the Metadata API."""
+    try:
+        if not ensure_connection():
+            return {"success": False, "message": "❌ Salesforce connection failed"}
+
+        if not object_name.endswith('__c'):
+            object_name += '__c'
+
+        # Check if object exists
+        if not check_object_exists(object_name):
+            return {"success": False, "message": f"❌ Custom Object '{object_name}' does not exist in the org."}
+
+        logging.info(f"Attempting to update custom object: {object_name} using Metadata API")
+
+        md_api = sf_conn.mdapi
+
+        # Get current object metadata first
+        try:
+            current_object = md_api.CustomObject.read(object_name)
+            if not current_object:
+                return {"success": False, "message": f"❌ Could not retrieve current metadata for '{object_name}'."}
+        except Exception as read_error:
+            return {"success": False, "message": f"❌ Failed to read current object metadata: {str(read_error)}"}
+
+        # Update only the provided fields
+        updates_made = []
+
+        if label is not None:
+            current_object.label = label
+            updates_made.append(f"Label: '{label}'")
+            # Also update the name field label
+            if hasattr(current_object, 'nameField') and current_object.nameField:
+                current_object.nameField.label = f'{label} Name'
+
+        if plural_label is not None:
+            current_object.pluralLabel = plural_label
+            updates_made.append(f"Plural Label: '{plural_label}'")
+
+        if description is not None:
+            current_object.description = description
+            updates_made.append(f"Description: '{description}'")
+
+        if not updates_made:
+            return {"success": False, "message": "❌ No updates provided. Please specify at least one field to update."}
+
+        # Update the object
+        try:
+            result = md_api.CustomObject.update(current_object)
+            logging.info(f"Object update result: {result}")
+
+            # Give Salesforce time to process
+            time.sleep(2)
+
+            return {
+                "success": True,
+                "message": f"✅ Successfully updated Custom Object '{object_name}'.\n\n📝 **Updates Made:**\n" + "\n".join([f"• {update}" for update in updates_made])
+            }
+
+        except Exception as update_error:
+            error_str = str(update_error)
+            return {"success": False, "message": f"❌ Failed to update object: {error_str}"}
+
+    except Exception as e:
+        error_message = f"❌ An exception occurred during object update: {str(e)}"
+        logging.error(error_message)
+        traceback.print_exc(file=sys.stderr)
+        return {"success": False, "message": error_message}
+
+
+def delete_custom_object(object_name):
+    """Deletes a custom object using the Metadata API."""
+    try:
+        if not ensure_connection():
+            return {"success": False, "message": "❌ Salesforce connection failed"}
+
+        if not object_name.endswith('__c'):
+            object_name += '__c'
+
+        # Check if object exists
+        if not check_object_exists(object_name):
+            return {"success": False, "message": f"❌ Custom Object '{object_name}' does not exist in the org."}
+
+        logging.info(f"Attempting to delete custom object: {object_name} using Metadata API")
+
+        md_api = sf_conn.mdapi
+
+        # Delete the object
+        try:
+            result = md_api.CustomObject.delete(object_name)
+            logging.info(f"Object deletion result: {result}")
+
+            # Give Salesforce time to process
+            time.sleep(3)
+
+            # Verify deletion
+            if not check_object_exists(object_name):
+                return {
+                    "success": True,
+                    "message": f"✅ Successfully deleted Custom Object '{object_name}' from the org.\n\n⚠️ **Note:** All records and related data for this object have been permanently removed."
+                }
+            else:
+                return {"success": False, "message": f"❌ Object deletion may have failed - object still exists after deletion attempt"}
+
+        except Exception as delete_error:
+            error_str = str(delete_error)
+            return {"success": False, "message": f"❌ Failed to delete object: {error_str}"}
+
+    except Exception as e:
+        error_message = f"❌ An exception occurred during object deletion: {str(e)}"
+        logging.error(error_message)
+        traceback.print_exc(file=sys.stderr)
+        return {"success": False, "message": error_message}
+
+
+def csv_to_records(csv_data):
+    """Convert CSV string to list of dictionaries."""
+    try:
+        csv_file = io.StringIO(csv_data.strip())
+        reader = csv.DictReader(csv_file)
+        records = list(reader)
+        logging.info(f"Parsed {len(records)} records from CSV")
+        return records
+    except Exception as e:
+        raise Exception(f"CSV parsing error: {str(e)}")
+
+
+def execute_bulk_insert_simple(object_name, csv_data):
+    """Execute bulk insert using simple-salesforce bulk API."""
+    try:
+        if not ensure_connection():
+            raise Exception("Cannot establish Salesforce connection")
+
+        records = csv_to_records(csv_data)
+        if not records:
+            return {"error": "No records found in CSV data"}
+
+        logging.info(f"Starting bulk insert of {len(records)} records to {object_name}")
+
+        bulk_object = getattr(sf_conn.bulk, object_name)
+        results = bulk_object.insert(records)
+
+        success_count = sum(1 for r in results if r.get("success"))
+        error_count = len(records) - success_count
+        errors = [r.get("error", "Unknown error") for r in results if not r.get("success")][
+            :5
+        ]
+
+        return {
+            "operation": "insert",
+            "object_name": object_name,
+            "total_records": len(records),
+            "success_count": success_count,
+            "error_count": error_count,
+            "errors": errors,
+            "message": f"Bulk insert completed. Success: {success_count}, Errors: {error_count}",
+        }
+
+    except Exception as e:
+        raise Exception(f"Bulk insert failed: {str(e)}")
+
+
+def execute_bulk_update_simple(object_name, csv_data):
+    """Execute bulk update using simple-salesforce bulk API."""
+    try:
+        if not ensure_connection():
+            raise Exception("Cannot establish Salesforce connection")
+
+        records = csv_to_records(csv_data)
+        if not records:
+            return {"error": "No records found in CSV data"}
+
+        if not all("Id" in record for record in records):
+            return {"error": "All records must have an 'Id' field for update"}
+
+        logging.info(f"Starting bulk update of {len(records)} records in {object_name}")
+
+        bulk_object = getattr(sf_conn.bulk, object_name)
+        results = bulk_object.update(records)
+
+        success_count = sum(1 for r in results if r.get("success"))
+        error_count = len(records) - success_count
+        errors = [r.get("error", "Unknown error") for r in results if not r.get("success")][
+            :5
+        ]
+
+        return {
+            "operation": "update",
+            "object_name": object_name,
+            "total_records": len(records),
+            "success_count": success_count,
+            "error_count": error_count,
+            "errors": errors,
+            "message": f"Bulk update completed. Success: {success_count}, Errors: {error_count}",
+        }
+
+    except Exception as e:
+        raise Exception(f"Bulk update failed: {str(e)}")
+
+
+def describe_object(object_name):
+    """Get object metadata."""
+    try:
+        if not ensure_connection():
+            raise Exception("Cannot establish Salesforce connection")
+
+        describe_result = getattr(sf_conn, object_name).describe()
+
+        fields_info = [
+            {
+                "name": f["name"],
+                "type": f["type"],
+                "label": f["label"],
+                "required": not f["nillable"] and not f["defaultedOnCreate"],
+                "updateable": f["updateable"],
+                "createable": f["createable"],
+            }
+            for f in describe_result["fields"]
+        ]
+
+        return {
+            "object_name": object_name,
+            "label": describe_result["label"],
+            "total_fields": len(fields_info),
+            "fields": fields_info,
+            "createable": describe_result["createable"],
+            "updateable": describe_result["updateable"],
+            "deletable": describe_result["deletable"],
+        }
+
+    except Exception as e:
+        raise Exception(f"Describe object failed: {str(e)}")
 
 
 def do_list_tools(params):
@@ -2111,201 +2615,6 @@ def do_list_tools(params):
     }
 
 
-def create_custom_object(object_name, label, plural_label, description=""):
-    """Creates a custom object using the Metadata API."""
-    try:
-        if not ensure_connection():
-            return {"success": False, "message": "❌ Salesforce connection failed"}
-
-        if not object_name.endswith("__c"):
-            object_name += "__c"
-
-        # Check if object already exists
-        if check_object_exists(object_name):
-            return {
-                "success": False,
-                "message": f"❌ Custom Object '{object_name}' already exists in the org.",
-            }
-
-        logging.info(
-            f"Attempting to create custom object: {object_name} using Metadata API"
-        )
-
-        md_api = sf_conn.mdapi
-
-        # Create the object metadata - only standard fields
-        object_data = {
-            "fullName": object_name,
-            "label": label,
-            "pluralLabel": plural_label,
-            "nameField": {"label": f"{label} Name", "type": "Text", "length": 80},
-            "deploymentStatus": md_api.DeploymentStatus("Deployed"),
-            "sharingModel": md_api.SharingModel("ReadWrite"),
-        }
-
-        # Add description if provided
-        if description:
-            object_data["description"] = description
-
-        # Create custom object
-        custom_object = md_api.CustomObject(**object_data)
-        logging.info(f"Creating basic object with mdapi: {object_name}")
-
-        # Call the create method and handle the result properly
-        try:
-            result = md_api.CustomObject.create(custom_object)
-            logging.info(f"Object creation result: {result}")
-
-            # Give Salesforce time to process
-            time.sleep(3)
-
-            if check_object_exists(object_name):
-                return {
-                    "success": True,
-                    "message": f"✅ Successfully created Custom Object '{object_name}' with standard fields.\n\n📋 **Standard Fields Created:**\n• Name ({label} Name) - Text(80)\n• Created By - Lookup(User)\n• Created Date - DateTime\n• Last Modified By - Lookup(User)\n• Last Modified Date - DateTime\n• Owner - Lookup(User,Group)\n\n💡 You can now add custom fields to this object if needed.",
-                }
-            else:
-                return {
-                    "success": False,
-                    "message": f"❌ Object creation may have failed - object not found after creation",
-                }
-
-        except Exception as create_error:
-            error_str = str(create_error)
-            if "DUPLICATE_DEVELOPER_NAME" in error_str:
-                return {
-                    "success": False,
-                    "message": f"❌ Custom Object '{object_name}' already exists in the org.",
-                }
-            else:
-                return {"success": False, "message": f"❌ Failed to create object: {error_str}"}
-
-    except Exception as e:
-        error_message = f"❌ An exception occurred during object creation: {str(e)}"
-        logging.error(error_message)
-        traceback.print_exc(file=sys.stderr)
-        return {"success": False, "message": error_message}
-
-
-def csv_to_records(csv_data):
-    """Convert CSV string to list of dictionaries."""
-    try:
-        csv_file = io.StringIO(csv_data.strip())
-        reader = csv.DictReader(csv_file)
-        records = list(reader)
-        logging.info(f"Parsed {len(records)} records from CSV")
-        return records
-    except Exception as e:
-        raise Exception(f"CSV parsing error: {str(e)}")
-
-
-def execute_bulk_insert_simple(object_name, csv_data):
-    """Execute bulk insert using simple-salesforce bulk API."""
-    try:
-        if not ensure_connection():
-            raise Exception("Cannot establish Salesforce connection")
-
-        records = csv_to_records(csv_data)
-        if not records:
-            return {"error": "No records found in CSV data"}
-
-        logging.info(f"Starting bulk insert of {len(records)} records to {object_name}")
-
-        bulk_object = getattr(sf_conn.bulk, object_name)
-        results = bulk_object.insert(records)
-
-        success_count = sum(1 for r in results if r.get("success"))
-        error_count = len(records) - success_count
-        errors = [r.get("error", "Unknown error") for r in results if not r.get("success")][
-            :5
-        ]
-
-        return {
-            "operation": "insert",
-            "object_name": object_name,
-            "total_records": len(records),
-            "success_count": success_count,
-            "error_count": error_count,
-            "errors": errors,
-            "message": f"Bulk insert completed. Success: {success_count}, Errors: {error_count}",
-        }
-
-    except Exception as e:
-        raise Exception(f"Bulk insert failed: {str(e)}")
-
-
-def execute_bulk_update_simple(object_name, csv_data):
-    """Execute bulk update using simple-salesforce bulk API."""
-    try:
-        if not ensure_connection():
-            raise Exception("Cannot establish Salesforce connection")
-
-        records = csv_to_records(csv_data)
-        if not records:
-            return {"error": "No records found in CSV data"}
-
-        if not all("Id" in record for record in records):
-            return {"error": "All records must have an 'Id' field for update"}
-
-        logging.info(f"Starting bulk update of {len(records)} records in {object_name}")
-
-        bulk_object = getattr(sf_conn.bulk, object_name)
-        results = bulk_object.update(records)
-
-        success_count = sum(1 for r in results if r.get("success"))
-        error_count = len(records) - success_count
-        errors = [r.get("error", "Unknown error") for r in results if not r.get("success")][
-            :5
-        ]
-
-        return {
-            "operation": "update",
-            "object_name": object_name,
-            "total_records": len(records),
-            "success_count": success_count,
-            "error_count": error_count,
-            "errors": errors,
-            "message": f"Bulk update completed. Success: {success_count}, Errors: {error_count}",
-        }
-
-    except Exception as e:
-        raise Exception(f"Bulk update failed: {str(e)}")
-
-
-def describe_object(object_name):
-    """Get object metadata."""
-    try:
-        if not ensure_connection():
-            raise Exception("Cannot establish Salesforce connection")
-
-        describe_result = getattr(sf_conn, object_name).describe()
-
-        fields_info = [
-            {
-                "name": f["name"],
-                "type": f["type"],
-                "label": f["label"],
-                "required": not f["nillable"] and not f["defaultedOnCreate"],
-                "updateable": f["updateable"],
-                "createable": f["createable"],
-            }
-            for f in describe_result["fields"]
-        ]
-
-        return {
-            "object_name": object_name,
-            "label": describe_result["label"],
-            "total_fields": len(fields_info),
-            "fields": fields_info,
-            "createable": describe_result["createable"],
-            "updateable": describe_result["updateable"],
-            "deletable": describe_result["deletable"],
-        }
-
-    except Exception as e:
-        raise Exception(f"Describe object failed: {str(e)}")
-
-
 def do_call_tool(params):
     """Handle tool execution."""
     tool_name = params.get("name")
@@ -2340,6 +2649,7 @@ def do_call_tool(params):
                         )
                     elif field.get("format"):
                         field_info += f"\n  Format: {field['format']}"
+
                     field_details.append(field_info)
 
                 message = (
@@ -2474,6 +2784,26 @@ def do_call_tool(params):
 
         elif tool_name == "create_custom_object":
             result = create_custom_object(**arguments)
+            return {"content": [{"type": "text", "text": result["message"]}]}
+
+        elif tool_name == "update_custom_object":
+            result = update_custom_object(**arguments)
+            return {"content": [{"type": "text", "text": result["message"]}]}
+
+        elif tool_name == "delete_custom_object":
+            result = delete_custom_object(**arguments)
+            return {"content": [{"type": "text", "text": result["message"]}]}
+
+        elif tool_name == "create_custom_field":
+            result = create_custom_field(**arguments)
+            return {"content": [{"type": "text", "text": result["message"]}]}
+
+        elif tool_name == "update_custom_field":
+            result = update_custom_field(**arguments)
+            return {"content": [{"type": "text", "text": result["message"]}]}
+
+        elif tool_name == "delete_custom_field":
+            result = delete_custom_field(**arguments)
             return {"content": [{"type": "text", "text": result["message"]}]}
 
         elif tool_name == "salesforce_bulk_insert_simple":
